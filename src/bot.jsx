@@ -23,8 +23,12 @@ function ChatBot() {
         messagesContainerRef.current.scrollHeight;
     }
   }, [chatHistory, isTyping]);
+  
+
 useEffect(() => {
-  const startConversation = async () => {
+  const fetchWelcomeMessage = async () => {
+    setIsTyping(true);
+
     try {
       const res = await fetch(`${webApi}/clinicchat`, {
         method: "POST",
@@ -32,39 +36,28 @@ useEffect(() => {
         body: JSON.stringify({
           user_id: "Career_coach",
           page_id: "612142091972168",
-          message: "", // Empty message to trigger welcome
-          model: currentModel
+          message: "", // empty triggers backend welcome
+          model: currentModel,
         }),
       });
 
-      if (!res.ok) throw new Error("Backend error");
       const data = await res.json();
-      
-      // Only update if we actually got a reply
+
       if (data.reply && data.reply.trim()) {
         setChatHistory([{ sender: "bot", text: data.reply }]);
-      } else {
-        // Fallback welcome message
-        setChatHistory([{ 
-          sender: "bot", 
-          text: "Hello! I'm Coach Jade, and I'll be guiding you through this career exploration session. To start, can you tell me a bit about your educational background and past work experience?" 
-        }]);
+        setIsTyping(false);
       }
     } catch (err) {
-      console.error("Failed to start conversation:", err);
-      // Fallback welcome message on error
-      setChatHistory([{ 
-        sender: "bot", 
-        text: "Hello! I'm Coach Jade, and I'll be guiding you through this career exploration session. To start, can you tell me a bit about your educational background and past work experience?" 
-      }]);
+      console.error("Failed to fetch welcome message dynamically:", err);
+    } finally {
+    
     }
   };
 
+  if (chatHistory.length === 0) fetchWelcomeMessage();
+}, []);
 
-  if (chatHistory.length === 0) {
-    startConversation();
-  }
-}, []); 
+
 
 const sendMessage = async () => {
   if (!userMessage.trim()) return;
