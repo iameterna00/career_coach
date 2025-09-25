@@ -25,22 +25,35 @@ export function Leads() {
     }
   };
 
-  const handleDelete = async (idx) => {
+  const handleDelete = async () => {
     try {
-      const leadToDelete = leads[idx];
-      const response = await fetch(`${webApi}/leads/${leadToDelete.id}`, {
-        method: "DELETE",
+      const res = await fetch(`${webApi}/clear-leads`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
       });
-      if (!response.ok) throw new Error("Failed to delete lead");
-      setLeads(leads.filter((_, index) => index !== idx));
+
+      if (!res.ok) throw new Error("Failed to clear leads");
+
+      const data = await res.json();
+      console.log("Leads cleared:", data);
+      alert(data.message);
+      setLeads([]); // Clear local state
     } catch (err) {
-      console.error("Error deleting lead:", err);
+      console.error("Error clearing leads:", err);
+      alert("Error clearing leads");
     }
   };
 
-  // Get all unique keys for table headers
-  const allKeys =
-    leads.length > 0 ? Object.keys(leads[0]).filter((key) => key !== "id") : [];
+  // Dynamically get headers for non-empty fields across all leads
+  const allKeys = leads.length
+    ? Array.from(
+        new Set(
+          leads.flatMap((lead) =>
+            Object.keys(lead).filter((key) => key !== "id" && lead[key])
+          )
+        )
+      )
+    : [];
 
   return (
     <div className="h-screen w-screen p-4 bg-gray-900">
@@ -100,32 +113,34 @@ export function Leads() {
               </tr>
             </thead>
             <tbody>
-              {leads.map((lead, idx) => (
-                <tr
-                  key={idx}
-                  className="group hover:bg-gray-800 transition text-gray-200"
-                >
-                  <td className="px-4 py-2 border-t border-gray-700">
-                    {idx + 1}
-                  </td>
-                  {allKeys.map((key) => (
-                    <td
-                      key={key}
-                      className="px-4 py-2 border-t border-gray-700 whitespace-normal"
-                    >
-                      {lead[key] || "-"}
+              {leads.map((lead, idx) => {
+                // Only show fields with values
+                const filledKeys = allKeys.filter((key) => lead[key]);
+                return (
+                  <tr
+                    key={idx}
+                    className="group hover:bg-gray-800 transition text-gray-200"
+                  >
+                    <td className="px-4 py-2 border-t border-gray-700">{idx + 1}</td>
+                    {filledKeys.map((key) => (
+                      <td
+                        key={key}
+                        className="px-4 py-2 border-t border-gray-700 whitespace-normal"
+                      >
+                        {lead[key]}
+                      </td>
+                    ))}
+                    <td className="px-4 py-2 border-t border-gray-700">
+                      <button
+                        onClick={handleDelete}
+                        className="opacity-0 group-hover:opacity-100 transition bg-red-500 text-white rounded p-1 hover:bg-red-600"
+                      >
+                        <X size={16} />
+                      </button>
                     </td>
-                  ))}
-                  <td className="px-4 py-2 border-t border-gray-700">
-                    <button
-                      onClick={() => handleDelete(idx)}
-                      className="opacity-0 group-hover:opacity-100 transition bg-red-500 text-white rounded p-1 hover:bg-red-600"
-                    >
-                      <X size={16} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

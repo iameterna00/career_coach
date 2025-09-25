@@ -5,6 +5,7 @@ import Leads from "./leads";
 
 import Gpt from "./assets/openai.png"; // Adjust the path as necessary
 import DeepSeekIcon from "./assets/deepseek-color.png"; // Adjust the path as necessary
+import { Book } from "lucide-react";
 
 function ChatBot() {
   const [chatHistory, setChatHistory] = useState([]);
@@ -15,13 +16,55 @@ function ChatBot() {
   const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Auto-scroll only the chat container
+
   useEffect(() => {
     if (messagesContainerRef.current) {
       messagesContainerRef.current.scrollTop =
         messagesContainerRef.current.scrollHeight;
     }
   }, [chatHistory, isTyping]);
+useEffect(() => {
+  const startConversation = async () => {
+    try {
+      const res = await fetch(`${webApi}/clinicchat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: "Career_coach",
+          page_id: "612142091972168",
+          message: "", // Empty message to trigger welcome
+          model: currentModel
+        }),
+      });
+
+      if (!res.ok) throw new Error("Backend error");
+      const data = await res.json();
+      
+      // Only update if we actually got a reply
+      if (data.reply && data.reply.trim()) {
+        setChatHistory([{ sender: "bot", text: data.reply }]);
+      } else {
+        // Fallback welcome message
+        setChatHistory([{ 
+          sender: "bot", 
+          text: "Hello! I'm Coach Jade, and I'll be guiding you through this career exploration session. To start, can you tell me a bit about your educational background and past work experience?" 
+        }]);
+      }
+    } catch (err) {
+      console.error("Failed to start conversation:", err);
+      // Fallback welcome message on error
+      setChatHistory([{ 
+        sender: "bot", 
+        text: "Hello! I'm Coach Jade, and I'll be guiding you through this career exploration session. To start, can you tell me a bit about your educational background and past work experience?" 
+      }]);
+    }
+  };
+
+
+  if (chatHistory.length === 0) {
+    startConversation();
+  }
+}, []); 
 
 const sendMessage = async () => {
   if (!userMessage.trim()) return;
@@ -30,7 +73,6 @@ const sendMessage = async () => {
   setUserMessage("");
   setIsTyping(true);
 
-  // Add user message
   setChatHistory((prev) => [...prev, { sender: "user", text: message }]);
 
   try {
@@ -38,7 +80,7 @@ const sendMessage = async () => {
       method: "POST",
       headers: { 
         "Content-Type": "application/json",
-        "X-API-Key": "OPENAI_API" // Add API key header
+        "X-API-Key": "OPENAI_API" 
       },
       body: JSON.stringify({
         user_id: "Career_coach",
@@ -83,9 +125,9 @@ const sendMessage = async () => {
 
 <button
   onClick={() => window.open('/leads', '_blank')}
-  className="fixed left-5 top-5 cursor-pointer bg-indigo-900 hover:bg-indigo-800 text-white p-4 rounded-lg transition-all duration-300"
+  className="fixed z-10 left-5 top-5 cursor-pointer bg-indigo-900 hover:bg-indigo-800 text-white p-4 rounded-lg transition-all duration-300"
 >
-  Leads
+ <Book />
 </button>
 
 
