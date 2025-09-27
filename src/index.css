@@ -44,6 +44,15 @@
   scrollbar-width: none;  
 }
 
+@keyframes blink-circle {
+  0%, 50%, 100% { opacity: 1; }
+  25%, 75% { opacity: 0; }
+}
+
+.animate-blink-circle {
+  animation: blink-circle 1s step-start infinite;
+}
+
 
 .scrollbar-custom::-webkit-scrollbar {
   height: 6px;       
