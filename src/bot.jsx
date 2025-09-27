@@ -78,10 +78,71 @@ useEffect(() => {
   if (!welcomeLoaded) fetchWelcomeMessage();
 }, [currentModel, welcomeLoaded]);
 
+const sendMessage1 = async () => {
+  if (!userMessage.trim() || chatClosed) return;
 
-  // Send user message and handle streaming response
+  const message = userMessage;
+  setUserMessage("");
+  setIsTyping(true);
+
+  const userMessageId = Date.now();
+  const assistantMessageId = userMessageId + 1;
+
+  setChatHistory(prev => [
+    ...prev,
+    { id: userMessageId, sender: "user", text: message, time: new Date() },
+    { id: assistantMessageId, sender: "assistant", text: "", isStreaming: currentModel !== "chatgpt", time: null }
+  ]);
+
+  try {
+    const res = await fetch(`${webApi}/carrerbot`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: "Career_coach",
+        page_id: "612142091972168",
+        message: message,
+        model: currentModel,
+      }),
+    });
+    const data = await res.json();
+
+    // --- Check if chat is closed ---
+    let reply = data.reply || "";
+    if (reply.includes("'close_chat': True") || reply.includes('"close_chat": true')) {
+      const messageMatch = reply.match(/'message':\s*'([^']*)'|"message":\s*"([^"]*)"/);
+      if (messageMatch) {
+        reply = messageMatch[1] || messageMatch[2];
+      }
+      setChatClosed(true);
+    }
+
+    setChatHistory(prev =>
+      prev.map(msg =>
+        msg.id === assistantMessageId
+          ? { ...msg, text: reply, isStreaming: false, time: new Date() }
+          : msg
+      )
+    );
+
+  } catch (err) {
+    console.error("GPT fetch error:", err);
+    setChatHistory(prev =>
+      prev.map(msg =>
+        msg.id === assistantMessageId
+          ? { ...msg, text: "⚠️ Error getting GPT response", isStreaming: false, time: new Date() }
+          : msg
+      )
+    );
+  } finally {
+    setIsTyping(false);
+  }
+};
+
+
+
   const sendMessage = async () => {
-    if (!userMessage.trim() || chatClosed) return; // <-- prevent input if chat closed
+    if (!userMessage.trim() || chatClosed) return; 
 
     const message = userMessage;
     setUserMessage("");
@@ -242,29 +303,41 @@ eventSourceRef.current.onmessage = (event) => {
     setCurrentModel(model);
   };
 
-  const StreamingText = ({ text, isStreaming }) => {
-    return (
-      <div className="inline break-words align-middle">
-        <ReactMarkdown
-          components={{
-            p: ({ node, ...props }) => <span {...props} />,
-            strong: ({ node, ...props }) => <strong className="font-semibold text-white/95" {...props} />,
-            em: ({ node, ...props }) => <em className="italic text-white/90" {...props} />,
-            code: ({ node, ...props }) => <code className="bg-white/10 px-1 py-0.5 rounded text-sm font-mono" {...props} />,
-            ul: ({ node, ...props }) => <ul className="list-disc list-inside space-y-1" {...props} />,
-            ol: ({ node, ...props }) => <ol className="list-decimal list-inside space-y-1" {...props} />,
-            li: ({ node, ...props }) => <li className="pl-2" {...props} />
-          }}
-        >
-          {text}
-        </ReactMarkdown>
+function fixSpacing(text) {
+  if (!text) return "";
+  
+  return text
+    // Only fix clear spacing issues
+    .replace(/([.!?])([A-Za-z])/g, "$1 $2")  // Space after punctuation
+    .replace(/\n{3,}/g, "\n\n")              // Normalize line breaks
+    .replace(/  +/g, " ")                    // Fix multiple spaces
+    .replace(/([a-zA-Z])(\d)/g, "$1 $2")
+    .replace(/(\d)([a-zA-Z])/g, "$1 $2")
+    .trim();
+}
+const StreamingText = ({ text, isStreaming }) => {
+  return (
+    <div className="inline break-words align-middle">
+      <ReactMarkdown
+        components={{
+          p: ({ node, ...props }) => <span {...props} />,
+          strong: ({ node, ...props }) => <strong className="font-semibold text-white/95" {...props} />,
+          em: ({ node, ...props }) => <em className="italic text-white/90" {...props} />,
+          code: ({ node, ...props }) => <code className="bg-white/10 px-1 py-0.5 rounded text-sm font-mono" {...props} />,
+          ul: ({ node, ...props }) => <ul className="list-disc list-inside space-y-1" {...props} />,
+          ol: ({ node, ...props }) => <ol className="list-decimal list-inside space-y-1" {...props} />,
+          li: ({ node, ...props }) => <li className="pl-2" {...props} />
+        }}
+      >
+        {fixSpacing(text)}
+      </ReactMarkdown>
 
-        {isStreaming && (
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400/80 ml-1 align-middle animate-pulse"></span>
-        )}
-      </div>
-    );
-  };
+      {isStreaming && (
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400/80 ml-1 align-middle animate-pulse"></span>
+      )}
+    </div>
+  );
+};
 
   return (
     <div className="h-screen w-full bg-black flex items-center justify-center p-4">
