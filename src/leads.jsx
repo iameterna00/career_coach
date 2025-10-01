@@ -97,40 +97,45 @@ export function Leads() {
       {/* Data Table */}
       {!loading && leads.length > 0 && (
         <div className="overflow-x-auto w-full">
-          <table className="w-full text-sm border-collapse rounded-lg shadow">
+          <table className="w-full text-sm border-collapse rounded-lg shadow table-auto">
             <thead className="bg-gray-800">
               <tr>
-                <th className="px-4 py-2 text-left text-gray-300">#</th>
+                <th className="px-4 py-2 text-left text-gray-300 whitespace-normal break-words">
+                  #
+                </th>
                 {allKeys.map((key) => (
                   <th
                     key={key}
-                    className="px-4 py-2 text-left text-gray-300 whitespace-nowrap"
+                    className="px-4 py-2 text-left text-gray-300 whitespace-normal break-words max-w-xs"
                   >
                     {key.charAt(0).toUpperCase() + key.slice(1)}
                   </th>
                 ))}
-                <th className="px-4 py-2 text-left text-gray-300">Action</th>
+                <th className="px-4 py-2 text-left text-gray-300 whitespace-normal">
+                  Action
+                </th>
               </tr>
             </thead>
             <tbody>
               {leads.map((lead, idx) => {
-                // Only show fields with values
                 const filledKeys = allKeys.filter((key) => lead[key]);
                 return (
                   <tr
                     key={idx}
                     className="group hover:bg-gray-800 transition text-gray-200"
                   >
-                    <td className="px-4 py-2 border-t border-gray-700">{idx + 1}</td>
+                    <td className="px-4 py-2 border-t border-gray-700 whitespace-normal">
+                      {idx + 1}
+                    </td>
                     {filledKeys.map((key) => (
                       <td
                         key={key}
-                        className="px-4 py-2 border-t border-gray-700 whitespace-normal"
+                        className="px-4 py-2 border-t border-gray-700 whitespace-normal break-words max-w-xs"
                       >
                         {lead[key]}
                       </td>
                     ))}
-                    <td className="px-4 py-2 border-t border-gray-700">
+                    <td className="px-4 py-2 border-t border-gray-700 whitespace-normal">
                       <button
                         onClick={handleDelete}
                         className="opacity-0 group-hover:opacity-100 transition bg-red-500 text-white rounded p-1 hover:bg-red-600"

@@ -12,12 +12,13 @@ function ChatBot() {
   const [userMessage, setUserMessage] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [currentModel, setCurrentModel] = useState("chatgpt");
-  const [chatClosed, setChatClosed] = useState(false); // <-- new state
-  const [welcomeLoaded, setWelcomeLoaded] = useState(false);
+  const [chatClosed, setChatClosed] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
 
   const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
   const eventSourceRef = useRef(null);
+  const hasInitializedRef = useRef(false);
 
   // Scroll to bottom when chat updates
   useEffect(() => {
@@ -26,24 +27,61 @@ function ChatBot() {
         messagesContainerRef.current.scrollHeight;
     }
   }, [chatHistory, isTyping]);
-useEffect(() => {
-  if (inputRef.current && userMessage === "") {
-    inputRef.current.style.height = "35px"; // reset to initial height
-  }
-}, [userMessage]);
-useEffect(() => {
-  let isMounted = true;
 
-  const fetchWelcomeMessage = async () => {
+  useEffect(() => {
+    if (inputRef.current && userMessage === "") {
+      inputRef.current.style.height = "35px";
+    }
+  }, [userMessage]);
+
+  // Fetch conversation history on component mount
+  useEffect(() => {
+    if (hasInitializedRef.current) return;
+    hasInitializedRef.current = true;
+
+    const initializeChat = async () => {
+      try {
+        const historyResponse = await fetch(
+          `${webApi}/conversation-history?user_id=Career_coach&page_id=612142091972168`
+        );
+        const historyData = await historyResponse.json();
+        
+        // BACKEND TELLS FRONTEND IF CHAT IS CLOSED
+        if (historyData.chat_closed) {
+          setChatClosed(true);
+        }
+        
+        if (historyData.messages && historyData.messages.length > 0) {
+          const formattedHistory = historyData.messages.map((msg, index) => ({
+            id: Date.now() + index,
+            sender: msg.role === "user" ? "user" : "assistant",
+            text: msg.content,
+            time: new Date(),
+            isStreaming: false
+          }));
+          setChatHistory(formattedHistory);
+        } else {
+          await triggerAIGreeting();
+        }
+      } catch (error) {
+        console.error("Error initializing chat:", error);
+        await triggerAIGreeting();
+      } finally {
+        setHistoryLoaded(true);
+      }
+    };
+
+    initializeChat();
+  }, []);
+
+  const triggerAIGreeting = async () => {
     setIsTyping(true);
     const messageId = Date.now();
 
-    // Add placeholder for assistant
     setChatHistory([
       { id: messageId, sender: "assistant", text: "", isStreaming: true, time: null }
     ]);
 
-    // Open SSE stream for the first welcome message
     eventSourceRef.current = new EventSource(
       `${webApi}/careerbot-stream?user_id=Career_coach&page_id=612142091972168&message=&model=${currentModel}`
     );
@@ -51,8 +89,6 @@ useEffect(() => {
     eventSourceRef.current.onmessage = (event) => {
       if (event.data === "[DONE]") {
         eventSourceRef.current.close();
-        if (!isMounted) return;
-
         setChatHistory(prev =>
           prev.map(msg =>
             msg.id === messageId
@@ -67,6 +103,7 @@ useEffect(() => {
       try {
         const data = JSON.parse(event.data);
 
+        // BACKEND TELLS FRONTEND TO CLOSE CHAT
         if (data.close_chat) {
           setChatClosed(true);
           setIsTyping(false);
@@ -96,97 +133,23 @@ useEffect(() => {
           );
         }
       } catch (err) {
-        console.error("Error parsing welcome SSE:", err);
+        console.error("Error parsing greeting SSE:", err);
       }
     };
 
     eventSourceRef.current.onerror = (err) => {
-      console.error("Welcome SSE error:", err);
+      console.error("Greeting SSE error:", err);
       eventSourceRef.current.close();
       setChatHistory(prev =>
         prev.map(msg =>
           msg.id === messageId
-            ? { ...msg, text: "⚠️ Error fetching welcome message", isStreaming: false, time: new Date() }
+            ? { ...msg, text: "Hello! How can I help with your career today?", isStreaming: false, time: new Date() }
             : msg
         )
       );
       setIsTyping(false);
     };
   };
-
-  fetchWelcomeMessage();
-
-  return () => {
-    isMounted = false;
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
-  };
-}, []);
-
-
-const sendMessage1 = async () => {
-  if (!userMessage.trim() || chatClosed) return;
-
-  const message = userMessage;
-  setUserMessage("");
-  setIsTyping(true);
-
-  const userMessageId = Date.now();
-  const assistantMessageId = userMessageId + 1;
-
-  setChatHistory(prev => [
-    ...prev,
-    { id: userMessageId, sender: "user", text: message, time: new Date() },
-    { id: assistantMessageId, sender: "assistant", text: "", isStreaming: currentModel !== "chatgpt", time: null }
-  ]);
-
-  try {
-    const res = await fetch(`${webApi}/carrerbot`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_id: "Career_coach",
-        page_id: "612142091972168",
-        message: message,
-        model: currentModel,
-      }),
-    });
-    const data = await res.json();
-
-    // --- Check if chat is closed ---
-    let reply = data.reply || "";
-    if (reply.includes("'close_chat': True") || reply.includes('"close_chat": true')) {
-      const messageMatch = reply.match(/'message':\s*'([^']*)'|"message":\s*"([^"]*)"/);
-      if (messageMatch) {
-        reply = messageMatch[1] || messageMatch[2];
-      }
-      setChatClosed(true);
-    }
-
-    setChatHistory(prev =>
-      prev.map(msg =>
-        msg.id === assistantMessageId
-          ? { ...msg, text: reply, isStreaming: false, time: new Date() }
-          : msg
-      )
-    );
-
-  } catch (err) {
-    console.error("GPT fetch error:", err);
-    setChatHistory(prev =>
-      prev.map(msg =>
-        msg.id === assistantMessageId
-          ? { ...msg, text: "⚠️ Error getting GPT response", isStreaming: false, time: new Date() }
-          : msg
-      )
-    );
-  } finally {
-    setIsTyping(false);
-  }
-};
-
-
 
   const sendMessage = async () => {
     if (!userMessage.trim() || chatClosed) return; 
@@ -211,59 +174,25 @@ const sendMessage1 = async () => {
         )}&model=${currentModel}`
       );
 
-      let botReply = "";
+      eventSourceRef.current.onmessage = (event) => {
+        if (event.data === "[DONE]") {
+          eventSourceRef.current.close();
+          setChatHistory(prev =>
+            prev.map(msg =>
+              msg.id === assistantMessageId
+                ? { ...msg, isStreaming: false, time: new Date() }
+                : msg
+            )
+          );
+          setIsTyping(false);
+          return;
+        }
 
-eventSourceRef.current.onmessage = (event) => {
-  if (event.data === "[DONE]") {
-    eventSourceRef.current.close();
-    setChatHistory(prev =>
-      prev.map(msg =>
-        msg.id === assistantMessageId
-          ? { ...msg, isStreaming: false, time: new Date() }
-          : msg
-      )
-    );
-    setIsTyping(false);
-    return;
-  }
-
-  try {
-    const data = JSON.parse(event.data);
-
-    // Check if this is a close_chat event from backend
-    if (data.close_chat) {
-      console.log("DEBUG: Close chat received from backend", data);
-      setChatClosed(true);
-      setIsTyping(false);
-      
-      // Update the existing streaming message with the close chat content
-      setChatHistory(prev =>
-        prev.map(msg =>
-          msg.id === assistantMessageId
-            ? { 
-                ...msg, 
-                text: data.content || data.message || "", 
-                isStreaming: false, 
-                time: new Date() 
-              }
-            : msg
-        )
-      );
-      
-      eventSourceRef.current.close();
-      return;
-    }
-
-    // Handle normal content streaming
-    if (data.content) {
-      let content = data.content;
-      if (content.includes("'close_chat': True") || content.includes('"close_chat": true')) {
         try {
-          const messageMatch = content.match(/'message':\s*'([^']*)'|"message":\s*"([^"]*)"/);
-          if (messageMatch) {
-            const extractedMessage = messageMatch[1] || messageMatch[2];
-            console.log("DEBUG: Extracted close chat message:", extractedMessage);
-            
+          const data = JSON.parse(event.data);
+
+          // BACKEND TELLS FRONTEND TO CLOSE CHAT
+          if (data.close_chat) {
             setChatClosed(true);
             setIsTyping(false);
             
@@ -272,7 +201,7 @@ eventSourceRef.current.onmessage = (event) => {
                 msg.id === assistantMessageId
                   ? { 
                       ...msg, 
-                      text: extractedMessage, 
+                      text: data.content || data.message || "", 
                       isStreaming: false, 
                       time: new Date() 
                     }
@@ -283,36 +212,31 @@ eventSourceRef.current.onmessage = (event) => {
             eventSourceRef.current.close();
             return;
           }
-        } catch (err) {
-          console.log("DEBUG: Failed to extract close chat from string, treating as normal content");
-        }
-      }
-      
-      // Normal content streaming
-      setChatHistory(prev =>
-        prev.map(msg =>
-          msg.id === assistantMessageId
-            ? { ...msg, text: msg.text + content }
-            : msg
-        )
-      );
-    }
 
-  } catch (err) {
-    console.error("Error parsing SSE data:", err);
-    
-    // Fallback: if JSON parsing fails completely, close the stream gracefully
-    setChatHistory(prev =>
-      prev.map(msg =>
-        msg.id === assistantMessageId
-          ? { ...msg, text: "Error processing response", isStreaming: false, time: new Date() }
-          : msg
-      )
-    );
-    setIsTyping(false);
-    eventSourceRef.current.close();
-  }
-};
+          // Handle normal content streaming
+          if (data.content) {
+            setChatHistory(prev =>
+              prev.map(msg =>
+                msg.id === assistantMessageId
+                  ? { ...msg, text: msg.text + data.content }
+                  : msg
+              )
+            );
+          }
+
+        } catch (err) {
+          console.error("Error parsing SSE data:", err);
+          setChatHistory(prev =>
+            prev.map(msg =>
+              msg.id === assistantMessageId
+                ? { ...msg, text: "Error processing response", isStreaming: false, time: new Date() }
+                : msg
+            )
+          );
+          setIsTyping(false);
+          eventSourceRef.current.close();
+        }
+      };
 
       eventSourceRef.current.onerror = (err) => {
         console.error("Streaming error:", err);
@@ -339,6 +263,7 @@ eventSourceRef.current.onmessage = (event) => {
     }
   };
 
+  // Rest of your code remains the same...
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -350,42 +275,52 @@ eventSourceRef.current.onmessage = (event) => {
     setCurrentModel(model);
   };
 
-function fixSpacing(text) {
-  if (!text) return "";
-  
-  return text
-    // Only fix clear spacing issues
-    .replace(/([.!?])([A-Za-z])/g, "$1 $2")  // Space after punctuation
-    .replace(/\n{3,}/g, "\n\n")              // Normalize line breaks
-    .replace(/  +/g, " ")                    // Fix multiple spaces
-    .replace(/([a-zA-Z])(\d)/g, "$1 $2")
-    .replace(/(\*\*[^*]+\*\*)([A-Za-z0-9])/g, "$1 $2")
-    .replace(/\*\*\s*(.*?)\s*\*\*/g, "**$1**") 
-    .trim();
-}
-const StreamingText = ({ text, isStreaming }) => {
-  return (
-    <div className="inline break-words align-middle">
-      <ReactMarkdown
-        components={{
-          p: ({ node, ...props }) => <span className="mb-2" {...props} />,
-          strong: ({ node, ...props }) => <strong className="font-semibold text-white/95" {...props} />,
-          em: ({ node, ...props }) => <em className="italic text-white/90" {...props} />,
-          code: ({ node, ...props }) => <code className="bg-white/10 px-1 py-0.5 rounded text-sm font-mono" {...props} />,
-          ul: ({ node, ...props }) => <ul className="list-disc list-inside space-y-1" {...props} />,
-          ol: ({ node, ...props }) => <ol className="list-decimal list-inside space-y-1" {...props} />,
-          li: ({ node, ...props }) => <li className="pl-2" {...props} />
-        }}
-      >
-        {fixSpacing(text)}
-      </ReactMarkdown>
+  function fixSpacing(text) {
+    if (!text) return "";
+    let fixed = text.replace(/\\n/g, "\n");
+    fixed = fixed
+      .replace(/([.!?])([A-Za-z])/g, "$1 $2")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/  +/g, " ")
+      .replace(/([a-zA-Z])(\d)/g, "$1 $2")
+      .replace(/(\*\*[^*]+\*\*)([A-Za-z0-9])/g, "$1 $2")
+      .replace(/\*\*\s*(.*?)\s*\*\*/g, "**$1**")
+      .trim();
+    return fixed;
+  }
 
-      {isStreaming && (
-        <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400/80 ml-1 align-middle animate-pulse"></span>
-      )}
-    </div>
-  );
-};
+  const StreamingText = ({ text, isStreaming }) => {
+    return (
+      <div className="inline break-words align-middle">
+        <ReactMarkdown
+          components={{
+            p: ({ node, ...props }) => <span className="mb-2" {...props} />,
+            strong: ({ node, ...props }) => <strong className="font-semibold text-white/95" {...props} />,
+            em: ({ node, ...props }) => <em className="italic text-white/90" {...props} />,
+            code: ({ node, ...props }) => <code className="bg-white/10 px-1 py-0.5 rounded text-sm font-mono" {...props} />,
+            ul: ({ node, ...props }) => <ul className="list-disc list-inside space-y-1" {...props} />,
+            ol: ({ node, ...props }) => <ol className="list-decimal list-inside space-y-1" {...props} />,
+            li: ({ node, ...props }) => <li className="pl-2" {...props} />
+          }}
+        >
+          {fixSpacing(text)}
+        </ReactMarkdown>
+
+        {isStreaming && (
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400/80 ml-1 align-middle animate-pulse"></span>
+        )}
+      </div>
+    );
+  };
+
+  // Show loading state while history is being fetched
+  if (!historyLoaded) {
+    return (
+      <div className="h-screen w-full bg-black flex items-center justify-center">
+        <div className="text-white/60">Loading conversation...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen w-full bg-black flex items-center justify-center p-0 md:p-4">
@@ -458,49 +393,45 @@ const StreamingText = ({ text, isStreaming }) => {
             );
           })}
         </div>
-{/* Input Area */}
-<div className="p-6 bg-black/20 backdrop-blur-xl border-t border-white/10">
-  <div className="flex gap-3 bg-white/5 backdrop-blur-md rounded-2xl p-3 border border-white/10 transition-all duration-300 focus-within:border-white/20">
 
-    {/* Wrapper to center placeholder vertically */}
-    <div className="flex flex-grow items-center">
-      <textarea
-        ref={inputRef}
-        value={userMessage}
-        onChange={(e) => setUserMessage(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={chatClosed ? "The assistant has closed this chat." : "Ask anything about your career..."}
-        className={`w-full bg-transparent text-white/95 scrollbar-hide placeholder-white/40 focus:outline-none font-light text-md resize-none overflow-auto ${chatClosed ? "text-center" : ""}`}
-        autoComplete="off"
-        disabled={isTyping || chatClosed}
-        style={{ minHeight: "35px", maxHeight: "200px", lineHeight: "1.2rem", paddingTop:'8px' }}
-        onInput={(e) => {
-          e.target.style.height = "auto"; 
-          e.target.style.height = Math.min(e.target.scrollHeight, 200) + "px"; 
-        }}
-      />
-    </div>
+        {/* Input Area */}
+        <div className="p-6 bg-black/20 backdrop-blur-xl border-t border-white/10">
+          <div className="flex gap-3 bg-white/5 backdrop-blur-md rounded-2xl p-3 border border-white/10 transition-all duration-300 focus-within:border-white/20">
+            <div className="flex flex-grow items-center">
+              <textarea
+                ref={inputRef}
+                value={userMessage}
+                onChange={(e) => setUserMessage(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={chatClosed ? "The assistant has closed this chat." : "Ask anything about your career..."}
+                className={`w-full bg-transparent text-white/95 scrollbar-hide placeholder-white/40 focus:outline-none font-light text-md resize-none overflow-auto ${chatClosed ? "text-center" : ""}`}
+                autoComplete="off"
+                disabled={isTyping || chatClosed}
+                style={{ minHeight: "35px", maxHeight: "200px", lineHeight: "1.2rem", paddingTop:'8px' }}
+                onInput={(e) => {
+                  e.target.style.height = "auto"; 
+                  e.target.style.height = Math.min(e.target.scrollHeight, 200) + "px"; 
+                }}
+              />
+            </div>
 
-    {!chatClosed && (
-      <div className="flex items-end">
-        <button
-          onClick={sendMessage}
-          disabled={isTyping || !userMessage.trim()}
-          className={`p-3 rounded-xl transition-all duration-300 ${
-            isTyping || !userMessage.trim()
-              ? "bg-white/5 text-white/30 cursor-not-allowed"
-              : "bg-gradient-to-r from-blue-500/80 to-purple-600/80 text-white hover:from-blue-500 hover:to-purple-600 hover:scale-105"
-          }`}
-        >
-          <MdSend className="text-xl" />
-        </button>
-      </div>
-    )}
-
-  </div>
-</div>
-
-
+            {!chatClosed && (
+              <div className="flex items-end">
+                <button
+                  onClick={sendMessage}
+                  disabled={isTyping || !userMessage.trim()}
+                  className={`p-3 rounded-xl transition-all duration-300 ${
+                    isTyping || !userMessage.trim()
+                      ? "bg-white/5 text-white/30 cursor-not-allowed"
+                      : "bg-gradient-to-r from-blue-500/80 to-purple-600/80 text-white hover:from-blue-500 hover:to-purple-600 hover:scale-105"
+                  }`}
+                >
+                  <MdSend className="text-xl" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
